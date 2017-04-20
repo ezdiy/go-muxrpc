@@ -31,7 +31,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"./codec" // eew
+	"github.com/ezdiy/go-muxrpc/codec"
 	"github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
 )
