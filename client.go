@@ -190,6 +190,7 @@ func (client *Client) handleCall(pkt *codec.Packet) {
 				}
 				client.sendqueue <- &queuePacket{p: &retPacket}
 			}
+			close(ret)
 			var retPacket codec.Packet
 			retPacket.Req = -pkt.Req
 			retPacket.EndErr = true
@@ -444,6 +445,7 @@ func (client *Client) Call(method string, reply interface{}, args ...interface{}
 	c.Reply = reply
 	c.Type = codec.JSON // TODO: find other example
 	client.Go(&c, nil)
+	go client.Handle()
 	<-c.Done
 	return c.Error
 }
@@ -461,6 +463,7 @@ func (client *Client) Source(method string, reply interface{}, args ...interface
 	c.Type = codec.JSON
 	c.stream = true
 	client.Go(&c, nil)
+	go client.Handle()
 	<-c.Done
 	return c.Error
 }
