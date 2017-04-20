@@ -31,7 +31,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"scuttlebot.io/go/muxrpc/codec"
+	"./codec" // eew
 	"github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
 )
