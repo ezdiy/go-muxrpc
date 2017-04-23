@@ -24,6 +24,8 @@ Endgame: codegen over muxrpc manifest
 package muxrpc
 
 import (
+	"fmt"
+	"runtime/debug"
 	"encoding/json"
 	"io"
 	"reflect"
@@ -91,7 +93,7 @@ func NewClient(l log.Logger, rwc io.ReadWriteCloser) *Client {
 }
 
 func (c *Client) IsClosed() bool {
-	return c.shutdown
+	return c.shutdown || c.closing
 }
 
 func (c *Client) Handle() {
@@ -274,6 +276,7 @@ type Call struct {
 	Reply  interface{}   // The reply from the function (*struct).
 	Error  error         // After completion, the error status.
 	Done   chan struct{} // Closes when call is complete.
+	closed []byte
 
 	stream bool
 
@@ -283,12 +286,22 @@ type Call struct {
 
 func (call *Call) done() {
 	call.owner.mutex.Lock()
-	close(call.Done)
+	call.done_nolock()
 	call.owner.mutex.Unlock()
 }
 
 func (call *Call) done_nolock() {
-	close(call.Done)
+	if call.closed != nil {
+		fmt.Println("++ FIXME ++ channel close race")
+		fmt.Println("Closing again here:")
+		debug.PrintStack()
+		fmt.Println("But previously:")
+		fmt.Println(string(call.closed))
+		return
+	} else {
+		call.closed = debug.Stack()
+		close(call.Done)
+	}
 }
 
 func (call *Call) handleResp(pkt *codec.Packet) (seqDone bool) {
