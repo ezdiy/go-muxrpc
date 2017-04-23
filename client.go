@@ -90,6 +90,10 @@ func NewClient(l log.Logger, rwc io.ReadWriteCloser) *Client {
 	return &c
 }
 
+func (c *Client) IsClosed() bool {
+	return c.shutdown
+}
+
 func (c *Client) Handle() {
 	go c.send()
 	c.read()
@@ -190,11 +194,11 @@ func (client *Client) handleCall(pkt *codec.Packet) {
 				}
 				client.sendqueue <- &queuePacket{p: &retPacket}
 			}
-			close(ret)
 			var retPacket codec.Packet
 			retPacket.Req = -pkt.Req
 			retPacket.EndErr = true
 			retPacket.Stream = true
+			retPacket.Body = []byte("true")
 			client.sendqueue <- &queuePacket{p: &retPacket}
 		}
 	} else {
@@ -246,7 +250,7 @@ func (client *Client) read() {
 	}
 	for _, call := range client.pending {
 		call.Error = err
-		call.done()
+		call.done_nolock()
 	}
 	client.mutex.Unlock()
 	if err != io.EOF && !closing {
@@ -274,9 +278,16 @@ type Call struct {
 	stream bool
 
 	log log.Logger
+	owner *Client
 }
 
 func (call *Call) done() {
+	call.owner.mutex.Lock()
+	close(call.Done)
+	call.owner.mutex.Unlock()
+}
+
+func (call *Call) done_nolock() {
 	close(call.Done)
 }
 
@@ -365,16 +376,16 @@ func (call *Call) handleResp(pkt *codec.Packet) (seqDone bool) {
 // the invocation.  The done channel will signal when the call is complete by returning
 // the same Call object.  If done is nil, Go will allocate a new channel.
 func (client *Client) Go(call *Call, done chan struct{}) *Call {
+	client.mutex.Lock()
 	if done == nil {
 		done = make(chan struct{}, 0) // unbuffered.
 	}
 	call.Done = done
 
-	client.mutex.Lock()
 	if client.shutdown || client.closing {
 		call.Error = ErrShutdown
+		call.done_nolock()
 		client.mutex.Unlock()
-		call.done()
 		return call
 	}
 	seq := client.seq
@@ -401,9 +412,9 @@ func (client *Client) Go(call *Call, done chan struct{}) *Call {
 	if pkt.Body, err = json.Marshal(req); err != nil {
 		client.mutex.Lock()
 		delete(client.pending, seq)
-		client.mutex.Unlock()
 		call.Error = errors.Wrap(err, "muxrpc/call: body json.Marshal() failed")
-		call.done()
+		call.done_nolock()
+		client.mutex.Unlock()
 		return call
 	}
 	sent := make(chan error)
@@ -439,6 +450,7 @@ func (client *Client) HandleSource(method string, handler SourceHandler) {
 // Call invokes the named function, waits for it to complete, and returns its error status.
 func (client *Client) Call(method string, reply interface{}, args ...interface{}) error {
 	var c Call
+	c.owner = client
 	c.log = log.With(client.log, "unit", "muxrpc/call", "method", method)
 	c.Method = method
 	c.Args = args
@@ -451,6 +463,7 @@ func (client *Client) Call(method string, reply interface{}, args ...interface{}
 
 func (client *Client) Source(method string, reply interface{}, args ...interface{}) error {
 	var c Call
+	c.owner = client
 	c.log = log.With(client.log, "unit", "muxrpc/sync", "method", method)
 	c.Method = method
 	c.Args = args
