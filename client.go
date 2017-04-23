@@ -24,8 +24,8 @@ Endgame: codegen over muxrpc manifest
 package muxrpc
 
 import (
-	"fmt"
-	"runtime/debug"
+	//"fmt"
+	//"runtime/debug"
 	"encoding/json"
 	"io"
 	"reflect"
@@ -276,7 +276,7 @@ type Call struct {
 	Reply  interface{}   // The reply from the function (*struct).
 	Error  error         // After completion, the error status.
 	Done   chan struct{} // Closes when call is complete.
-	closed []byte
+	//closed bool//[]byte
 
 	stream bool
 
@@ -285,23 +285,22 @@ type Call struct {
 }
 
 func (call *Call) done() {
-	call.owner.mutex.Lock()
+	//call.owner.mutex.Lock()
 	call.done_nolock()
-	call.owner.mutex.Unlock()
+	//call.owner.mutex.Unlock()
 }
 
 func (call *Call) done_nolock() {
-	if call.closed != nil {
+/*	if call.closed {
 		fmt.Println("++ FIXME ++ channel close race")
 		fmt.Println("Closing again here:")
 		debug.PrintStack()
 		fmt.Println("But previously:")
 		fmt.Println(string(call.closed))
-		return
-	} else {
-		call.closed = debug.Stack()
+		return*/
+//	} else {
 		close(call.Done)
-	}
+//	}
 }
 
 func (call *Call) handleResp(pkt *codec.Packet) (seqDone bool) {
@@ -434,8 +433,11 @@ func (client *Client) Go(call *Call, done chan struct{}) *Call {
 	go func() {
 		err := <-sent
 		if err != nil {
+			client.mutex.Lock()
+			delete(client.pending, seq)
 			call.Error = err
 			call.done()
+			client.mutex.Unlock()
 		}
 	}()
 	client.sendqueue <- &queuePacket{p: &pkt, sent: sent}
